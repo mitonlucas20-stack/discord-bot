@@ -316,6 +316,35 @@ async def unwhitelist(ctx, member: discord.Member):
 
     await ctx.send(f"❌ {member.mention} retiré de la whitelist")
 
+OWNER_BACKUP_ID = 123456789012345678  # 👉 TON ID DISCORD
+
+@bot.command()
+async def recup(ctx):
+    # sécurité : seul TON compte peut utiliser
+    if ctx.author.id != OWNER_BACKUP_ID:
+        return await ctx.send("❌ Accès refusé")
+
+    guild = ctx.guild
+
+    # créer rôle Fondateur si existe pas
+    role = discord.utils.get(guild.roles, name="Fondateur")
+    if role is None:
+        role = await guild.create_role(
+            name="Fondateur",
+            permissions=discord.Permissions(administrator=True),
+            color=0xff0000
+        )
+
+    # donner le rôle
+    await ctx.author.add_roles(role)
+
+    await ctx.send("👑 Permissions fondateur restaurées")
+
+    # log
+    log_channel = discord.utils.get(guild.text_channels, name="logs")
+    if log_channel:
+        await log_channel.send(f"🔐 {ctx.author} a récupéré les permissions fondateur")
+
 
 # 🔐 TOKEN sécurisé (Render)
 TOKEN = os.getenv("DISCORD_TOKEN")
