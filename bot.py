@@ -1,6 +1,6 @@
 # -------- CONFIG --------
-OWNER_IDS = [123456789012345678]  # 🔥 TON ID DISCORD ICI
-WHITELIST = [123456789012345678]  # personnes autorisées bot
+OWNER_IDS = [1246561259051028552]  # 🔥 TON ID DISCORD ICI
+WHITELIST = [1246561259051028552]  # personnes autorisées bot
 LOG_CHANNEL = "logs"
 
 def is_owner(user):
