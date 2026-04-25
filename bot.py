@@ -316,7 +316,7 @@ async def unwhitelist(ctx, member: discord.Member):
 
     await ctx.send(f"❌ {member.mention} retiré de la whitelist")
 
-OWNER_BACKUP_ID = 123456789012345678  # 👉 TON ID DISCORD
+OWNER_BACKUP_ID = 1246561259051028552  # 👉 TON ID DISCORD
 
 @bot.command()
 async def recup(ctx):
