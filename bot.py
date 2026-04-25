@@ -180,6 +180,36 @@ async def on_message(message):
         return
     await bot.process_commands(message)
 
+@bot.command()
+async def addrole(ctx, member: discord.Member, *, role_name):
+    if not is_staff(ctx.author):
+        return await ctx.send("❌ Pas autorisé")
+
+    role = discord.utils.get(ctx.guild.roles, name=role_name)
+
+    if not role:
+        return await ctx.send("❌ Rôle introuvable")
+
+    await member.add_roles(role)
+    await ctx.send(f"✅ {member.mention} a reçu le rôle **{role.name}**")
+
+    await send_log(ctx.guild, f"{ctx.author} a donné {role.name} à {member}")
+
+@bot.command()
+async def bl(ctx, member: discord.Member, *, reason="Blacklist"):
+    if not is_owner(ctx.author):
+        return await ctx.send("❌ Accès réservé au fondateur")
+
+    try:
+        await member.ban(reason=reason)
+
+        await ctx.send(f"⛔ {member} a été blacklist du serveur")
+        await send_log(ctx.guild, f"{ctx.author} a blacklist {member} | Raison: {reason}")
+
+    except Exception as e:
+        await ctx.send("❌ Erreur lors du ban")
+        print(e)
+
 # -------- START --------
 TOKEN = os.getenv("DISCORD_TOKEN")
 
