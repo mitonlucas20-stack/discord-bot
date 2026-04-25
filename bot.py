@@ -8,18 +8,12 @@ import os
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix="+", intents=intents)
 
-# -------- CONFIG --------
-STAFF_ROLES = ["Fondateur", "Admin", "Responsable Boutique"]
+# CONFIG
+STAFF_ROLES = ["Fondateur", "Admin", "Modérateur"]
 OWNER_IDS = [1246561259051028552]
-WHITELIST = [1246561259051028552]
 LOG_CHANNEL = "logs"
 
-PACKS = {
-    "🛒 Achat Pack": "Achat boutique FiveM",
-    "💳 Paiement": "Problème paiement",
-    "❓ Support": "Besoin d'aide",
-    "⚠️ Problème": "Bug / remboursement"
-}
+warnings = {}
 
 # -------- UTILS --------
 def is_staff(member):
@@ -28,92 +22,53 @@ def is_staff(member):
 def is_owner(user):
     return user.id in OWNER_IDS
 
-def is_whitelisted(user):
-    return user.id in WHITELIST
+async def log(guild, msg):
+    channel = discord.utils.get(guild.text_channels, name=LOG_CHANNEL)
+    if channel:
+        await channel.send(f"📜 {msg}")
 
-async def send_log(guild, message):
-    log_channel = discord.utils.get(guild.text_channels, name=LOG_CHANNEL)
-    if log_channel:
-        await log_channel.send(f"📜 {message}")
-
-# -------- TICKET --------
+# -------- TICKETS --------
 class TicketSelect(Select):
     def __init__(self):
         options = [
-            discord.SelectOption(label=label, description=desc)
-            for label, desc in PACKS.items()
+            discord.SelectOption(label="Support", description="Aide"),
+            discord.SelectOption(label="Paiement", description="Problème paiement"),
         ]
-        super().__init__(placeholder="Fais un choix", options=options)
+        super().__init__(placeholder="Choisis", options=options)
 
-    async def callback(self, interaction: discord.Interaction):
-        guild = interaction.guild
+    async def callback(self, interaction):
         user = interaction.user
+        guild = interaction.guild
 
-        # Anti double ticket
-        for channel in guild.text_channels:
-            if f"ticket-{user.id}" == channel.name:
-                return await interaction.response.send_message(
-                    f"❌ Tu as déjà un ticket : {channel.mention}",
-                    ephemeral=True
-                )
+        for c in guild.text_channels:
+            if f"ticket-{user.id}" == c.name:
+                return await interaction.response.send_message("❌ Ticket déjà ouvert", ephemeral=True)
 
-        category = discord.utils.get(guild.categories, name=self.values[0])
-        if not category:
-            category = await guild.create_category(self.values[0])
-
-        channel = await guild.create_text_channel(
-            f"ticket-{user.id}",
-            category=category
-        )
-
+        channel = await guild.create_text_channel(f"ticket-{user.id}")
         await channel.set_permissions(user, read_messages=True, send_messages=True)
 
-        embed = discord.Embed(
-            title="📦 Support",
-            description="Un staff va te répondre.",
-            color=0xff6600
-        )
-
-        await channel.send(user.mention, embed=embed, view=CloseView())
+        await channel.send(f"{user.mention}", view=CloseView())
         await interaction.response.send_message("✅ Ticket créé", ephemeral=True)
 
-# -------- CLOSE --------
 class CloseView(View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="🔒 Fermer", style=discord.ButtonStyle.red)
-    async def close(self, interaction: discord.Interaction, button: Button):
-
+    @discord.ui.button(label="Fermer", style=discord.ButtonStyle.red)
+    async def close(self, interaction, button):
         if not is_staff(interaction.user):
             return await interaction.response.send_message("❌ Pas autorisé", ephemeral=True)
 
-        await interaction.response.send_message("🔒 Fermeture...", ephemeral=True)
+        messages = []
+        async for m in interaction.channel.history(limit=200):
+            messages.append(f"{m.author}: {m.content}")
 
-        channel = interaction.channel
+        with open("transcript.txt", "w") as f:
+            f.write("\n".join(messages))
 
-        try:
-            messages = []
-            async for msg in channel.history(limit=200):
-                messages.append(f"{msg.author}: {msg.content}")
+        await log(interaction.guild, f"Ticket fermé: {interaction.channel.name}")
+        await interaction.channel.delete()
 
-            with open("transcript.txt", "w", encoding="utf-8") as f:
-                f.write("\n".join(messages))
-
-            log_channel = discord.utils.get(interaction.guild.text_channels, name=LOG_CHANNEL)
-            if log_channel:
-                await log_channel.send(
-                    f"📄 Ticket fermé : {channel.name}",
-                    file=discord.File("transcript.txt")
-                )
-
-            await asyncio.sleep(2)
-            await channel.delete()
-
-        except Exception as e:
-            print(e)
-
-# -------- PANEL --------
 class TicketView(View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -121,99 +76,101 @@ class TicketView(View):
 
 @bot.command()
 async def panel(ctx):
-    embed = discord.Embed(
-        title="📦 Support PackZone",
-        description="Choisis une catégorie ci-dessous.",
-        color=0xff6600
-    )
-    await ctx.send(embed=embed, view=TicketView())
+    await ctx.send("📦 Panel Support", view=TicketView())
 
-# -------- STAFF --------
+# -------- MODERATION --------
 @bot.command()
-async def addfonda(ctx, member: discord.Member):
-    if not is_whitelisted(ctx.author):
-        return await ctx.send("❌ Accès refusé")
-
-    role = discord.utils.get(ctx.guild.roles, name="Fondateur")
-    if not role:
-        role = await ctx.guild.create_role(name="Fondateur", permissions=discord.Permissions(administrator=True))
-
-    await member.add_roles(role)
-    await ctx.send(f"👑 {member.mention} promu Fondateur")
-    await send_log(ctx.guild, f"{ctx.author} → Fondateur → {member}")
+async def clear(ctx, amount: int):
+    if not is_staff(ctx.author):
+        return
+    await ctx.channel.purge(limit=amount+1)
 
 @bot.command()
-async def recup(ctx):
-    if ctx.author.id not in OWNER_IDS:
-        return await ctx.send("❌ Accès refusé")
+async def kick(ctx, member: discord.Member):
+    if not is_staff(ctx.author):
+        return
+    await member.kick()
 
-    role = discord.utils.get(ctx.guild.roles, name="Fondateur")
-    if not role:
-        role = await ctx.guild.create_role(name="Fondateur", permissions=discord.Permissions(administrator=True))
+@bot.command()
+async def ban(ctx, member: discord.Member):
+    if not is_staff(ctx.author):
+        return
+    await member.ban()
 
-    await ctx.author.add_roles(role)
-    await ctx.send("👑 Permissions récupérées")
+@bot.command()
+async def unban(ctx, user_id: int):
+    if not is_owner(ctx.author):
+        return
+    user = await bot.fetch_user(user_id)
+    await ctx.guild.unban(user)
+
+# -------- WARN --------
+@bot.command()
+async def warn(ctx, member: discord.Member, *, reason="Aucune"):
+    if not is_staff(ctx.author):
+        return
+
+    warnings.setdefault(member.id, []).append(reason)
+    await ctx.send(f"⚠️ {member} warn")
+
+@bot.command()
+async def casier(ctx, member: discord.Member):
+    w = warnings.get(member.id, [])
+    await ctx.send("\n".join(w) if w else "Aucun")
+
+# -------- UTILS STAFF --------
+@bot.command()
+async def lock(ctx):
+    if not is_staff(ctx.author):
+        return
+    await ctx.channel.set_permissions(ctx.guild.default_role, send_messages=False)
+
+@bot.command()
+async def unlock(ctx):
+    if not is_staff(ctx.author):
+        return
+    await ctx.channel.set_permissions(ctx.guild.default_role, send_messages=True)
+
+@bot.command()
+async def say(ctx, *, msg):
+    if not is_staff(ctx.author):
+        return
+    await ctx.message.delete()
+    await ctx.send(msg)
+
+@bot.command()
+async def moveall(ctx):
+    if not ctx.author.voice:
+        return
+    for m in ctx.guild.members:
+        if m.voice:
+            await m.move_to(ctx.author.voice.channel)
 
 # -------- FUN --------
 @bot.command()
-async def pic(ctx, member: discord.Member = None):
+async def pic(ctx, member: discord.Member=None):
     member = member or ctx.author
+    await ctx.send(member.display_avatar.url)
 
-    embed = discord.Embed(
-        title=f"📸 {member}",
-        color=0xff6600
-    )
-    embed.set_image(url=member.display_avatar.url)
+@bot.command()
+async def gstart(ctx, time: int, winners: int, *, prize):
+    msg = await ctx.send(f"🎉 {prize}")
+    await msg.add_reaction("🎉")
 
-    await ctx.send(embed=embed)
+    await asyncio.sleep(time)
+
+    msg = await ctx.channel.fetch_message(msg.id)
+    users = [u async for u in msg.reactions[0].users() if not u.bot]
+
+    winners = random.sample(users, min(len(users), winners))
+    await ctx.send(f"Gagnant: {', '.join([u.mention for u in winners])}")
 
 # -------- READY --------
 @bot.event
 async def on_ready():
-    print(f"✅ Connecté en tant que {bot.user}")
+    print("Bot prêt")
     bot.add_view(CloseView())
-
-# -------- ANTI BUG --------
-@bot.event
-async def on_message(message):
-    if message.author.bot:
-        return
-    await bot.process_commands(message)
-
-@bot.command()
-async def addrole(ctx, member: discord.Member, *, role_name):
-    if not is_staff(ctx.author):
-        return await ctx.send("❌ Pas autorisé")
-
-    role = discord.utils.get(ctx.guild.roles, name=role_name)
-
-    if not role:
-        return await ctx.send("❌ Rôle introuvable")
-
-    await member.add_roles(role)
-    await ctx.send(f"✅ {member.mention} a reçu le rôle **{role.name}**")
-
-    await send_log(ctx.guild, f"{ctx.author} a donné {role.name} à {member}")
-
-@bot.command()
-async def bl(ctx, member: discord.Member, *, reason="Blacklist"):
-    if not is_owner(ctx.author):
-        return await ctx.send("❌ Accès réservé au fondateur")
-
-    try:
-        await member.ban(reason=reason)
-
-        await ctx.send(f"⛔ {member} a été blacklist du serveur")
-        await send_log(ctx.guild, f"{ctx.author} a blacklist {member} | Raison: {reason}")
-
-    except Exception as e:
-        await ctx.send("❌ Erreur lors du ban")
-        print(e)
 
 # -------- START --------
 TOKEN = os.getenv("DISCORD_TOKEN")
-
-if not TOKEN:
-    print("❌ Token manquant")
-else:
-    bot.run(TOKEN)
+bot.run(TOKEN)
